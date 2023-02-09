@@ -1672,6 +1672,19 @@ T dot(vector<T, N> x, vector<T, N> y)
     return result;
 }
 
+// Vector outer product
+
+__generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
+__target_intrinsic(glsl, "outerProduct($1, $0)")
+matrix<T, N, M> outerProduct(vector<T, N> x, vector<T, M> y)
+{
+    matrix<T, N, M> result;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < M; ++j)
+            result[i][j] = x[i] * y[j];
+    return result;
+}
+
 
 // Helper for computing distance terms for lighting (obsolete)
 
@@ -3491,7 +3504,31 @@ matrix<T,N,M> tanh(matrix<T,N,M> x)
 }
 
 // Matrix transpose
-__generic<T : __BuiltinType, let N : int, let M : int>
+__generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
+__target_intrinsic(hlsl)
+__target_intrinsic(glsl)
+matrix<T, M, N> transpose(matrix<T, N, M> x)
+{
+    matrix<T,M,N> result;
+    for(int r = 0; r < M; ++r)
+        for(int c = 0; c < N; ++c)
+            result[r][c] = x[c][r];
+    return result;
+}
+
+__generic<T : __BuiltinIntegerType, let N : int, let M : int>
+__target_intrinsic(hlsl)
+__target_intrinsic(glsl)
+matrix<T, M, N> transpose(matrix<T, N, M> x)
+{
+    matrix<T,M,N> result;
+    for(int r = 0; r < M; ++r)
+        for(int c = 0; c < N; ++c)
+            result[r][c] = x[c][r];
+    return result;
+}
+
+__generic<T : __BuiltinLogicalType, let N : int, let M : int>
 __target_intrinsic(hlsl)
 __target_intrinsic(glsl)
 matrix<T, M, N> transpose(matrix<T, N, M> x)

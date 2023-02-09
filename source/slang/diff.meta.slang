@@ -162,9 +162,23 @@ extension Array<T, N> : IDifferentiable
     }
 }
 
+// matrix transpose
+__generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
+[ForwardDerivativeOf(transpose)]
+DifferentialPair<matrix<T, M, N>> __d_transpose(DifferentialPair<matrix<T, N, M>> m)
+{
+    return diffPair(transpose(m.p), transpose(m.d));
+}
+
+__generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
+[BackwardDerivativeOf(transpose)]
+void __d_transpose(inout DifferentialPair<matrix<T, N, M>> m, matrix<T, M, N>.Differential dOut)
+{
+    m = diffPair(m.p, transpose(dOut));
+}
+
 // vector-matrix
 __generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
-[ForceInline]
 [ForwardDerivativeOf(mul)]
 DifferentialPair<vector<T, M>> mul(DifferentialPair<vector<T, N>> left, DifferentialPair<matrix<T, N, M>> right)
 {
@@ -174,29 +188,17 @@ DifferentialPair<vector<T, M>> mul(DifferentialPair<vector<T, N>> left, Differen
 }
 
 __generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
-[ForceInline]
 [BackwardDerivativeOf(mul)]
 void __d_mul(inout DifferentialPair<vector<T, N>> left, inout DifferentialPair<matrix<T, N, M>> right, vector<T, M>.Differential dOut)
 {
-    vector<T, N>.Differential left_d_result;
-    matrix<T, N, M>.Differential right_d_result;
-    for (int i = 0; i < N; ++i)
-    {
-        T sum = T(0);
-        for (int j = 0; j < M; ++j)
-        {
-            sum += right.p[i][j] * dOut[j];
-            right_d_result[i][j] = left.p[i] * dOut[j];
-        }
-        left_d_result[i] = sum;
-    }
+    let left_d_result = mul(right.p, dOut);
+    let right_d_result = outerProduct(left.p, dOut);
     left = diffPair(left.p, left_d_result);
     right = diffPair(right.p, right_d_result);
 }
 
 // matrix-vector
 __generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
-[ForceInline]
 [ForwardDerivativeOf(mul)]
 DifferentialPair<vector<T,N>> mul(DifferentialPair<matrix<T,N,M>> left, DifferentialPair<vector<T,M>> right)
 {
@@ -206,29 +208,17 @@ DifferentialPair<vector<T,N>> mul(DifferentialPair<matrix<T,N,M>> left, Differen
 }
 
 __generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
-[ForceInline]
 [BackwardDerivativeOf(mul)]
 void __d_mul(inout DifferentialPair<matrix<T, N, M>> left, inout DifferentialPair<vector<T, M>> right, vector<T, N>.Differential dOut)
 {
-    matrix<T, N, M>.Differential left_d_result;
-    vector<T, M>.Differential right_d_result;
-    for (int j = 0; j < M; ++j)
-    {
-        T sum = T(0);
-        for (int i = 0; i < N; ++i)
-        {
-            sum += left.p[i][j] * dOut[i];
-            left_d_result[i][j] = right.p[j] * dOut[i];
-        }
-        right_d_result[j] = sum;
-    }
+    let left_d_result = outerProduct(dOut, right.p);
+    let right_d_result = mul(dOut, left.p);
     left = diffPair(left.p, left_d_result);
     right = diffPair(right.p, right_d_result);
 }
 
 // matrix-matrix
 __generic<T : __BuiltinFloatingPointType, let R : int, let N : int, let C : int>
-[ForceInline]
 [ForwardDerivativeOf(mul)]
 DifferentialPair<matrix<T,R,C>> mul(DifferentialPair<matrix<T,R,N>> left, DifferentialPair<matrix<T,N,C>> right)
 {
@@ -238,31 +228,11 @@ DifferentialPair<matrix<T,R,C>> mul(DifferentialPair<matrix<T,R,N>> left, Differ
 }
 
 __generic<T : __BuiltinFloatingPointType, let R : int, let N : int, let C : int>
-[ForceInline]
 [BackwardDerivativeOf(mul)]
 void mul(inout DifferentialPair<matrix<T, R, N>> left, inout DifferentialPair<matrix<T, N, C>> right, matrix<T, R, C>.Differential dOut)
 {
-    matrix<T, R, N>.Differential left_d_result;
-    for (int r = 0; r < R; ++r)
-        for (int n = 0; n < N; ++n)
-            left_d_result[r][n] = T(0.0);
-    
-    matrix<T, N, C>.Differential right_d_result;
-    for (int n = 0; n < N; ++n)
-        for (int c = 0; c < C; ++c)
-            right_d_result[n][c] = T(0.0);
-    
-    for (int r = 0; r < R; ++r)
-    {
-        for (int c = 0; c < C; ++c)
-        {
-            for (int n = 0; n < N; ++n)
-            {
-                left_d_result[r][n] += right.p[n][c] * dOut[r][c];
-                right_d_result[n][c] += left.p[r][n] * dOut[r][c];
-            }
-        }
-    }
+    let left_d_result = mul(dOut, transpose(right.p));
+    let right_d_result = mul(transpose(left.p), dOut);
     left = diffPair(left.p, left_d_result);
     right = diffPair(right.p, right_d_result);
 }
@@ -724,6 +694,27 @@ void __d_dot(inout DifferentialPair<vector<T, N>> dpx, inout DifferentialPair<ve
         x_d_result[i] = dpy.p[i] * __slang_noop_cast<T>(dOut);
         y_d_result[i] = dpx.p[i] * __slang_noop_cast<T>(dOut);
     }
+    dpx = diffPair(dpx.p, x_d_result);
+    dpy = diffPair(dpy.p, y_d_result);
+}
+
+// Vector outer product
+
+__generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
+[ForwardDerivativeOf(outerProduct)]
+DifferentialPair<matrix<T, N, M>> __d_outerProduct(DifferentialPair<vector<T, N>> dpx, DifferentialPair<vector<T, M>> dpy)
+{
+    let result = outerProduct(dpx.p, dpy.p);
+    let d_result = outerProduct(dpx.d, dpy.p) + outerProduct(dpx.p, dpy.d);
+    return diffPair(result, d_result);
+}
+
+__generic<T : __BuiltinFloatingPointType, let N : int, let M : int>
+[BackwardDerivativeOf(outerProduct)]
+void __d_outerProduct(inout DifferentialPair<vector<T, N>> dpx, inout DifferentialPair<vector<T, M>> dpy, matrix<T, N, M>.Differential dOut)
+{
+    let x_d_result = mul(dOut, dpy.p);
+    let y_d_result = mul(dpx.p, dOut);
     dpx = diffPair(dpx.p, x_d_result);
     dpy = diffPair(dpy.p, y_d_result);
 }
