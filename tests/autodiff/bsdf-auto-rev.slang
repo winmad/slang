@@ -38,7 +38,7 @@ void bsdfGGXSample(in ShadingData sd, in Auto_Bwd_BSDFParameters params, out Aut
 {
     float3 wiLocal = no_diff(sd.toLocal(sd.V));
     // float2 u = no_diff(sampleNext2D(sg));
-    float2 u = float2(0.1, 0.7);
+    float2 u = float2(0.8, 0.3);
 
     // Reject incoming directions that are too grazing.
     /*
@@ -48,6 +48,7 @@ void bsdfGGXSample(in ShadingData sd, in Auto_Bwd_BSDFParameters params, out Aut
         //return false;
     }
     */
+    
     // Taken from Rendering.Materials.Microfacet. Follows the Walter et al. EGSR07 BTDF paper
     float alphaSqr = params.roughness * params.roughness;
     float phi = u.y * (2 * 3.1415926);
@@ -56,13 +57,18 @@ void bsdfGGXSample(in ShadingData sd, in Auto_Bwd_BSDFParameters params, out Aut
     float r = sqrt(max(1 - cosTheta * cosTheta, 0));
 
     float3 hLocal = float3(cos(phi) * r, sin(phi) * r, cosTheta); // half-vector local space
-    float wiDotH = dot(wiLocal, hLocal);
+    /*float wiDotH = dot(wiLocal, hLocal);
     float3 woLocal = 2 * hLocal * wiDotH - wiLocal; // outgoing vector local space
-
+    
     float pdf = bsdfGGXPDF(hLocal, params) / (4.f * wiDotH);
     result.wo = no_diff(sd.fromLocal(woLocal)); // wo to world.
     result.pdf = detach(pdf);
     result.weight = evalGGXDivByPDF(wiLocal, woLocal, hLocal, params) * pdf / detach(pdf);
+    */
+
+    result.wo = float3(0, 0, 0);
+    result.pdf = 0;
+    result.weight = float3(0, 0, 0);
 
     // Reject outgoing directions that are too grazing or outside the hemisphere.
     // return woLocal.z > kMinCosTheta;
