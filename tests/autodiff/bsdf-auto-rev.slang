@@ -35,6 +35,7 @@ struct Auto_Bwd_BSDFParameters : IDifferentiable
 // bool bsdfGGXSample<S : ISampleGenerator>(in ShadingData sd, inout S sg, in Auto_Fwd_BSDFParameters params, inout Auto_Fwd_ScatterSample result)
 // void bsdfGGXSample(in ShadingData sd, inout UniformSampleGenerator sg, in Auto_Bwd_BSDFParameters params, out Auto_Bwd_ScatterSample result)
 void bsdfGGXSample(in ShadingData sd, in Auto_Bwd_BSDFParameters params, out Auto_Bwd_ScatterSample result)
+//void bsdfGGXSample(in ShadingData sd, in Auto_Bwd_BSDFParameters params, out float3 result)
 {
     float3 wiLocal = no_diff(sd.toLocal(sd.V));
     // float2 u = no_diff(sampleNext2D(sg));
@@ -57,18 +58,15 @@ void bsdfGGXSample(in ShadingData sd, in Auto_Bwd_BSDFParameters params, out Aut
     float r = sqrt(max(1 - cosTheta * cosTheta, 0));
 
     float3 hLocal = float3(cos(phi) * r, sin(phi) * r, cosTheta); // half-vector local space
-    /*float wiDotH = dot(wiLocal, hLocal);
+    float wiDotH = dot(wiLocal, hLocal);
     float3 woLocal = 2 * hLocal * wiDotH - wiLocal; // outgoing vector local space
-    
+
     float pdf = bsdfGGXPDF(hLocal, params) / (4.f * wiDotH);
+    //result = evalGGXDivByPDF(wiLocal, woLocal, hLocal, params) * pdf / detach(pdf);
+    
     result.wo = no_diff(sd.fromLocal(woLocal)); // wo to world.
     result.pdf = detach(pdf);
     result.weight = evalGGXDivByPDF(wiLocal, woLocal, hLocal, params) * pdf / detach(pdf);
-    */
-
-    result.wo = float3(0, 0, 0);
-    result.pdf = 0;
-    result.weight = float3(0, 0, 0);
 
     // Reject outgoing directions that are too grazing or outside the hemisphere.
     // return woLocal.z > kMinCosTheta;
