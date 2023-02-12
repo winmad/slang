@@ -874,7 +874,7 @@ struct DiffUnzipPass
             // If return value is not differentiable, just turn it into a trivial branch.
             auto primalBranch = primalBuilder->emitBranch(firstDiffBlock);
             primalBuilder->addBackwardDerivativePrimalReturnDecoration(
-                primalBranch, primalBuilder->getVoidValue());
+                primalBranch, mixedReturn->getVal());
 
             auto returnInst = diffBuilder->emitReturn();
             diffBuilder->markInstAsDifferential(returnInst, nullptr);

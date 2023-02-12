@@ -539,6 +539,10 @@ namespace Slang
             {
                 builder.emitStore(tempVar, builder.emitLoad(param));
             }
+            else
+            {
+                builder.emitStore(tempVar, builder.emitDefaultConstruct(ptrType->getValueType()));
+            }
         }
 
         for (auto block : func->getBlocks())
@@ -589,6 +593,7 @@ namespace Slang
         AutoDiffAddressConversionPolicy cvtPolicty;
         cvtPolicty.diffTypeContext = &diffTypeContext;
         auto result = eliminateAddressInsts(sharedBuilder, &cvtPolicty, func, sink);
+        auto ir1 = dumpIRToString(func);
         if (SLANG_SUCCEEDED(result))
         {
             simplifyFunc(func);
@@ -824,6 +829,7 @@ namespace Slang
             moveInstChildren(existingPrimalHeader, primalFuncGeneric);
             primalFuncGeneric->replaceUsesWith(existingPrimalHeader);
             primalFuncGeneric->removeAndDeallocate();
+            primalFuncGeneric = existingPrimalHeader;
         }
         else
         {
@@ -831,7 +837,7 @@ namespace Slang
             builder->addBackwardDerivativePrimalDecoration(primalFunc, specializedBackwardPrimalFunc);
         }
 
-        initializeLocalVariables(builder->getSharedBuilder(), primalFunc);
+        initializeLocalVariables(builder->getSharedBuilder(), as<IRGlobalValueWithCode>(getGenericReturnVal(primalFuncGeneric)));
         initializeLocalVariables(builder->getSharedBuilder(), diffPropagateFunc);
     }
 
