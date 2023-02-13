@@ -593,7 +593,7 @@ namespace Slang
         AutoDiffAddressConversionPolicy cvtPolicty;
         cvtPolicty.diffTypeContext = &diffTypeContext;
         auto result = eliminateAddressInsts(sharedBuilder, &cvtPolicty, func, sink);
-        auto ir1 = dumpIRToString(func);
+
         if (SLANG_SUCCEEDED(result))
         {
             simplifyFunc(func);
