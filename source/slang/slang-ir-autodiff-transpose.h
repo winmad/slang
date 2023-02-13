@@ -552,9 +552,13 @@ struct DiffTransposePass
                 {
                     if (auto diffDecor = varInst->findDecoration<IRDifferentialInstDecoration>())
                     {
-                        varInst->insertAtEnd(firstRevDiffBlock);
-                        auto dzero = emitDZeroOfDiffInstType(&builder, diffDecor->getPrimalType());
-                        builder.emitStore(varInst, dzero);
+                        if (auto ptrPrimalType = as<IRPtrTypeBase>(diffDecor->getPrimalType()))
+                        {
+                            varInst->insertAtEnd(firstRevDiffBlock);
+
+                            auto dzero = emitDZeroOfDiffInstType(&builder, ptrPrimalType->getValueType());
+                            builder.emitStore(varInst, dzero);
+                        }
                     }
                 }
                 inst = nextInst;

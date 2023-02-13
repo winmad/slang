@@ -963,7 +963,6 @@ namespace Slang
                     // after transposition.
                     auto tempVar = nextBlockBuilder.emitVar(diffType);
                     copyNameHintDecoration(tempVar, fwdParam);
-                    nextBlockBuilder.markInstAsDifferential(tempVar, diffPairType);
 
                     // Initialize the var with input diff param at start.
                     // Note that we insert the store in the primal block so it won't get transposed.
@@ -1094,7 +1093,6 @@ namespace Slang
                 auto diffVar = nextBlockBuilder.emitVar(diffType);
                 copyNameHintDecoration(diffVar, fwdParam);
                 result.propagateFuncSpecificPrimalInsts.add(diffVar);
-                diffBuilder.markInstAsDifferential(diffVar, diffPairType);
                 diffRefReplacement = diffVar;
 
                 // Clear the diff read var to zero at start of the function.

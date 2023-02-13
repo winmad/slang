@@ -839,7 +839,7 @@ struct DiffUnzipPass
         auto diffType = (IRType*) diffTypeContext.getDifferentialForType(primalBuilder, primalType);
         auto primalVar = primalBuilder->emitVar(primalType);
         auto diffVar = diffBuilder->emitVar(diffType);
-        diffBuilder->markInstAsDifferential(diffVar, primalType);
+        diffBuilder->markInstAsDifferential(diffVar, diffBuilder->getPtrType(primalType));
         return InstPair(primalVar, diffVar);
     }
 
