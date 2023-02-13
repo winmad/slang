@@ -224,7 +224,9 @@ String dumpIRToString(IRInst* root)
     StringBuilder sb;
     StringWriter writer(&sb, Slang::WriterFlag::AutoFlush);
     IRDumpOptions options = {};
+#if 0
     options.flags = IRDumpOptions::Flag::DumpDebugIds;
+#endif
     dumpIR(root, options, nullptr, &writer);
     return sb.ToString();
 }
@@ -441,6 +443,27 @@ bool canInstHaveSideEffectAtAddress(IRGlobalValueWithCode* func, IRInst* inst, I
         break;
     }
     return false;
+}
+
+IRInst* getUndefInst(IRBuilder builder, IRModule* module)
+{
+    IRInst* undefInst = nullptr;
+
+    for (auto inst : module->getModuleInst()->getChildren())
+    {
+        if (inst->getOp() == kIROp_undefined && inst->getDataType() && inst->getDataType()->getOp() == kIROp_VoidType)
+        {
+            undefInst = inst;
+            break;
+        }
+    }
+    if (!undefInst)
+    {
+        auto voidType = builder.getVoidType();
+        builder.setInsertAfter(voidType);
+        undefInst = builder.emitUndefined(voidType);
+    }
+    return undefInst;
 }
 
 bool isPureFunctionalCall(IRCall* call)
