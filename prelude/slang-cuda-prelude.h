@@ -186,6 +186,105 @@ union Union64
     double d;
 };
 
+#define SLANG_CUDA_VECTOR_BINARY_OP(T, n, op) \
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T##n operator op(T##n thisVal, T##n other) \
+    { \
+        T##n result;\
+        for (int i = 0; i < n; i++) \
+            ((T*)(&result))[i] = ((T*)(&thisVal))[i] op ((T*)(&other))[i]; \
+        return result;\
+    }
+#define SLANG_CUDA_VECTOR_UNARY_OP(T, n, op) \
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T##n operator op(T##n thisVal) \
+    { \
+        T##n result;\
+        for (int i = 0; i < n; i++) \
+            ((T*)(&result))[i] = op ((T*)(&thisVal))[i]; \
+        return result;\
+    }
+
+#define SLANG_CUDA_VECTOR_INT_OP(T, n) \
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, +)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, -)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, *)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, /)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, %)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, ^)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, &)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, |)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, &&)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, ||)\
+    SLANG_CUDA_VECTOR_UNARY_OP(T, n, !)\
+    SLANG_CUDA_VECTOR_UNARY_OP(T, n, -)\
+    SLANG_CUDA_VECTOR_UNARY_OP(T, n, ~)
+
+#define SLANG_CUDA_VECTOR_INT_OPS(T) \
+    SLANG_CUDA_VECTOR_INT_OP(T, 2) \
+    SLANG_CUDA_VECTOR_INT_OP(T, 3) \
+    SLANG_CUDA_VECTOR_INT_OP(T, 4)
+
+SLANG_CUDA_VECTOR_INT_OPS(int)
+SLANG_CUDA_VECTOR_INT_OPS(uint)
+SLANG_CUDA_VECTOR_INT_OPS(ushort)
+SLANG_CUDA_VECTOR_INT_OPS(short)
+SLANG_CUDA_VECTOR_INT_OPS(char)
+SLANG_CUDA_VECTOR_INT_OPS(uchar)
+
+#define SLANG_CUDA_VECTOR_FLOAT_OP(T, n) \
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, +)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, -)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, *)\
+    SLANG_CUDA_VECTOR_BINARY_OP(T, n, /)\
+    SLANG_CUDA_VECTOR_UNARY_OP(T, n, -)
+#define SLANG_CUDA_VECTOR_FLOAT_OPS(T) \
+    SLANG_CUDA_VECTOR_FLOAT_OP(T, 2) \
+    SLANG_CUDA_VECTOR_FLOAT_OP(T, 3) \
+    SLANG_CUDA_VECTOR_FLOAT_OP(T, 4)
+
+SLANG_CUDA_VECTOR_FLOAT_OPS(float)
+SLANG_CUDA_VECTOR_FLOAT_OPS(double)
+
+#define SLANG_MAKE_VECTOR(T) \
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T##2 make_##T##2(T x, T y) { return T##2{x, y}; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T##3 make_##T##3(T x, T y, T z) { return T##3{ x, y, z }; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T##4 make_##T##4(T x, T y, T z, T w) { return T##4{ x, y, z, w }; }
+SLANG_MAKE_VECTOR(int)
+SLANG_MAKE_VECTOR(uint)
+SLANG_MAKE_VECTOR(float)
+SLANG_MAKE_VECTOR(double)
+SLANG_MAKE_VECTOR(short)
+SLANG_MAKE_VECTOR(ushort)
+SLANG_MAKE_VECTOR(char)
+SLANG_MAKE_VECTOR(uchar)
+
+#define SLANG_VECTOR_GET_ELEMENT(T) \
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T _slang_vector_get_element(T##1 x, int index) { return ((T*)(&x))[index]; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T _slang_vector_get_element(T##2 x, int index) { return ((T*)(&x))[index]; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T _slang_vector_get_element(T##3 x, int index) { return ((T*)(&x))[index]; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T _slang_vector_get_element(T##4 x, int index) { return ((T*)(&x))[index]; }
+SLANG_VECTOR_GET_ELEMENT(int)
+SLANG_VECTOR_GET_ELEMENT(uint)
+SLANG_VECTOR_GET_ELEMENT(short)
+SLANG_VECTOR_GET_ELEMENT(ushort)
+SLANG_VECTOR_GET_ELEMENT(char)
+SLANG_VECTOR_GET_ELEMENT(uchar)
+SLANG_VECTOR_GET_ELEMENT(float)
+SLANG_VECTOR_GET_ELEMENT(double)
+
+#define SLANG_VECTOR_GET_ELEMENT_PTR(T) \
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T* _slang_vector_get_element_ptr(T##1* x, int index) { return ((T*)(x)) + index; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T* _slang_vector_get_element_ptr(T##2* x, int index) { return ((T*)(x)) + index; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T* _slang_vector_get_element_ptr(T##3* x, int index) { return ((T*)(x)) + index; }\
+    SLANG_FORCE_INLINE SLANG_CUDA_CALL T* _slang_vector_get_element_ptr(T##4* x, int index) { return ((T*)(x)) + index; }
+SLANG_VECTOR_GET_ELEMENT_PTR(int)
+SLANG_VECTOR_GET_ELEMENT_PTR(uint)
+SLANG_VECTOR_GET_ELEMENT_PTR(short)
+SLANG_VECTOR_GET_ELEMENT_PTR(ushort)
+SLANG_VECTOR_GET_ELEMENT_PTR(char)
+SLANG_VECTOR_GET_ELEMENT_PTR(uchar)
+SLANG_VECTOR_GET_ELEMENT_PTR(float)
+SLANG_VECTOR_GET_ELEMENT_PTR(double)
+
 //
 // Half support
 // 
@@ -195,6 +294,8 @@ union Union64
 // Add the other vector half types
 struct __half3 { __half2 xy; __half z; };
 struct __half4 { __half2 xy; __half2 zw; };
+
+SLANG_VECTOR_GET_ELEMENT(__half)
 
 // *** convert ***
 

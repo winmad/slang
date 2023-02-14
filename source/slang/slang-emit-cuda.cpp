@@ -123,131 +123,6 @@ SlangResult CUDASourceEmitter::_calcCUDATextureTypeName(IRTextureTypeBase* texTy
     return SLANG_FAIL;
 }
 
-SlangResult CUDASourceEmitter::calcScalarFuncName(HLSLIntrinsic::Op op, IRBasicType* type, StringBuilder& outBuilder)
-{
-    typedef HLSLIntrinsic::Op Op;
-
-    UnownedStringSlice funcName;
-    
-    switch (op)
-    {
-        case Op::FRem:
-        {
-            if (type->getOp() == kIROp_FloatType || type->getOp() == kIROp_DoubleType)
-            {
-                funcName = HLSLIntrinsic::getInfo(op).funcName;
-            }
-            break;
-        }
-        default: break;
-    }
-
-    if (funcName.getLength())
-    {
-        outBuilder << funcName;
-        if (type->getOp() == kIROp_FloatType)
-        {
-            outBuilder << "f";
-        }
-        return SLANG_OK;
-    }
-
-    // Defer to the supers impl
-    return Super::calcScalarFuncName(op, type, outBuilder);
-}
-
-void CUDASourceEmitter::emitSpecializedOperationDefinition(const HLSLIntrinsic* specOp)
-{
-    typedef HLSLIntrinsic::Op Op;
-
-    if (auto vecType = as <IRVectorType>(specOp->returnType))
-    {
-        // Converting to or from half vector types is implemented prelude as convert___half functions
-        // Get the from type -> if it's half we ignore
-
-        if (specOp->op == Op::ConstructConvert)
-        {
-            auto signatureType = specOp->signatureType;
-
-            // Need to have impl of convert_float, double, int, uint, in prelude
-
-            const auto paramCount = signatureType->getParamCount();
-            SLANG_UNUSED(paramCount);
-
-            // We have 2 'params' and param 1 is the source type
-            SLANG_ASSERT(paramCount == 2);
-            IRType* paramType = signatureType->getParamType(1);
-
-            auto vecParamType = as<IRVectorType>(paramType);
-
-            if (auto baseType = as<IRBasicType>(vecParamType->getElementType()))
-            {
-                if (baseType->getBaseType() == BaseType::Half)
-                {
-                    return;
-                }
-            }
-        }
-
-        if (auto baseType = as<IRBasicType>(vecType->getElementType()))
-        {
-            if (baseType->getBaseType() == BaseType::Half)
-            {
-                switch (specOp->op)
-                {
-                    case Op::Init:
-
-                    case Op::Add:
-                    case Op::Mul:
-                    case Op::Div:
-                    case Op::Sub:
-
-                    case Op::Neg:
-
-                    case Op::ConstructFromScalar:
-                    case Op::ConstructConvert:
-
-                    case Op::Leq:
-                    case Op::Less:
-                    case Op::Greater:
-                    case Op::Geq:
-                    case Op::Neq:
-                    case Op::Eql:
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    switch (specOp->op)
-    {
-        case Op::Init:
-        {
-            // Special case handling
-            auto returnType = specOp->returnType;
-
-            if (auto vecType = as <IRVectorType>(returnType))
-            {
-                if (auto baseType = as<IRBasicType>(vecType->getElementType()))
-                {
-                    if (baseType->getBaseType() == BaseType::Half)
-                    {
-                        // Defined already in cuda-prelude.h
-                        return;
-                    }
-                }
-            }
-
-            break;
-        }
-        default: break;
-    }
-
-    Super::emitSpecializedOperationDefinition(specOp);
-}
-
 SlangResult CUDASourceEmitter::calcTypeName(IRType* type, CodeGenTarget target, StringBuilder& out)
 {
     SLANG_UNUSED(target);
@@ -436,49 +311,6 @@ void CUDASourceEmitter::emitGlobalRTTISymbolPrefix()
     m_writer->emit("__constant__ ");
 }
 
-void CUDASourceEmitter::emitCall(const HLSLIntrinsic* specOp, IRInst* inst, const IRUse* operands, int numOperands, const EmitOpInfo& inOuterPrec)
-{
-    switch (specOp->op)
-    {
-        case HLSLIntrinsic::Op::Init:
-        {
-            // For CUDA vector types we construct with make_
-
-            auto writer = m_writer;
-
-            IRType* retType = specOp->returnType;
-
-            if (IRVectorType* vecType = as<IRVectorType>(retType))
-            {
-                if (numOperands == getIntVal(vecType->getElementCount()))
-                {
-                    // Get the type name
-                    writer->emit("make_");
-                    emitType(retType);
-                    writer->emitChar('(');
-
-                    for (int i = 0; i < numOperands; ++i)
-                    {
-                        if (i > 0)
-                        {
-                            writer->emit(", ");
-                        }
-                        emitOperand(operands[i].get(), getInfo(EmitOp::General));
-                    }
-
-                    writer->emitChar(')');
-                    return;
-                }
-            }
-            // Just use the default
-            break;
-        }
-        default: break;
-    }
-
-    return Super::emitCall(specOp, inst, operands, numOperands, inOuterPrec);
-}
-
 void CUDASourceEmitter::emitLoopControlDecorationImpl(IRLoopControlDecoration* decl)
 {
     if (decl->getMode() == kIRLoopControl_Unroll)
@@ -551,7 +383,11 @@ void CUDASourceEmitter::_emitInitializerListValue(IRType* dstType, IRInst* value
 
                     // TODO(JS): If num cols = 1, then it *doesn't* actually return a vector.
                     // That could be argued is an error because we want swizzling or [] to work.
-                    IRType* rowType = m_typeSet.addVectorType(matType->getElementType(), int(colCount));
+                    IRBuilder builder(matType->getModule());
+                    builder.setInsertBefore(matType);
+                    IRType* rowType = builder.getVectorType(
+                        matType->getElementType(),
+                        builder.getIntValue(builder.getIntType(), colCount));
                     IRVectorType* rowVectorType = as<IRVectorType>(rowType);
                     const Index operandCount = Index(value->getOperandCount());
 
@@ -820,7 +656,19 @@ void CUDASourceEmitter::emitVectorTypeNameImpl(IRType* elementType, IRIntegerVal
 
 void CUDASourceEmitter::emitSimpleTypeImpl(IRType* type)
 {
-    m_writer->emit(_getTypeName(type));
+    switch (type->getOp())
+    {
+    case kIROp_VectorType:
+        {
+            auto vectorType = as<IRVectorType>(type);
+            m_writer->emit(getVectorPrefix(vectorType->getElementType()->getOp()));
+            m_writer->emit(as<IRIntLit>(vectorType->getElementCount())->getValue());
+            break;
+        }
+    default:
+        m_writer->emit(_getTypeName(type));
+        break;
+    }
 }
 
 void CUDASourceEmitter::emitRateQualifiersImpl(IRRate* rate)
@@ -907,27 +755,6 @@ void CUDASourceEmitter::emitPreModuleImpl()
     // Emit generated types/functions
 
     writer->emit("\n");
-
-    {
-        List<IRType*> types;
-        m_typeSet.getTypes(IRTypeSet::Kind::Matrix, types);
-
-        // Emit the type definitions
-        for (auto type : types)
-        {
-            emitTypeDefinition(type);
-        }
-    }
-
-    {
-        List<const HLSLIntrinsic*> intrinsics;
-        m_intrinsicSet.getIntrinsics(intrinsics);
-        // Emit all the intrinsics that were used
-        for (auto intrinsic : intrinsics)
-        {
-            _maybeEmitSpecializedOperationDefinition(intrinsic);
-        }
-    }
 }
 
 
@@ -951,22 +778,6 @@ bool CUDASourceEmitter::tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* v
 
 void CUDASourceEmitter::emitModuleImpl(IRModule* module, DiagnosticSink* sink)
 {
-    // Setup all built in types used in the module
-    m_typeSet.addAllBuiltinTypes(module);
-    // If any matrix types are used, then we need appropriate vector types too.
-    m_typeSet.addVectorForMatrixTypes();
-
-    // We need to add some vector intrinsics - used for calculating thread ids 
-    {
-        IRType* type = m_typeSet.addVectorType(m_typeSet.getBuilder().getBasicType(BaseType::UInt), 3);
-        IRType* args[] = { type, type };
-
-        _addIntrinsic(HLSLIntrinsic::Op::Add,  type, args, SLANG_COUNT_OF(args));
-        _addIntrinsic(HLSLIntrinsic::Op::Mul,  type, args, SLANG_COUNT_OF(args));
-    }
-
-    // TODO(JS): We may need to generate types (for example for matrices)
-
     CLikeSourceEmitter::emitModuleImpl(module, sink);
 
     // Emit all witness table definitions.
