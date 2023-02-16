@@ -559,8 +559,6 @@ INST(BitNot, bitnot, 1, 0)
 
 INST(Select, select, 3, 0)
 
-INST(Dot, dot, 2, 0)
-
 INST(GetStringHash, getStringHash, 1, 0)
 
 INST(WaveGetActiveMask, waveGetActiveMask, 0, 0)

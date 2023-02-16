@@ -6972,7 +6972,6 @@ namespace Slang
         case kIROp_Not:
         case kIROp_BitNot:
         case kIROp_Select:
-        case kIROp_Dot:
         case kIROp_MakeExistential:
         case kIROp_ExtractExistentialType:
         case kIROp_ExtractExistentialValue:

@@ -170,17 +170,11 @@ InstPair ForwardDiffTranscriber::transcribeBinaryLogic(IRBuilder* builder, IRIns
 {
     SLANG_ASSERT(origLogic->getOperandCount() == 2);
 
-    // TODO: Check other boolean cases.
-    if (as<IRBoolType>(origLogic->getDataType()))
-    {
-        // Boolean operations are not differentiable. For the linearization
-        // pass, we do not need to do anything but copy them over to the ne
-        // function.
-        auto primalLogic = maybeCloneForPrimalInst(builder, origLogic);
-        return InstPair(primalLogic, nullptr);
-    }
-    
-    SLANG_UNEXPECTED("Logical operation with non-boolean result");
+    // Boolean operations are not differentiable. For the linearization
+    // pass, we do not need to do anything but copy them over to the ne
+    // function.
+    auto primalLogic = maybeCloneForPrimalInst(builder, origLogic);
+    return InstPair(primalLogic, nullptr);
 }
 
 InstPair ForwardDiffTranscriber::transcribeLoad(IRBuilder* builder, IRLoad* origLoad)
@@ -494,7 +488,6 @@ InstPair ForwardDiffTranscriber::transcribeCall(IRBuilder* builder, IRCall* orig
 
     if (!diffReturnType)
     {
-        SLANG_RELEASE_ASSERT(origCall->getFullType()->getOp() == kIROp_VoidType);
         diffReturnType = argBuilder.getVoidType();
     }
 
@@ -1366,6 +1359,8 @@ InstPair ForwardDiffTranscriber::transcribeInstImpl(IRBuilder* builder, IRInst* 
     case kIROp_Or:
     case kIROp_Geq:
     case kIROp_Leq:
+    case kIROp_Eql:
+    case kIROp_Neq:
         return transcribeBinaryLogic(builder, origInst);
 
     case kIROp_CastIntToFloat:
@@ -1454,7 +1449,27 @@ InstPair ForwardDiffTranscriber::transcribeInstImpl(IRBuilder* builder, IRInst* 
     case kIROp_undefined:
         return transcribeUndefined(builder, origInst);
 
+    case kIROp_Not:
+    case kIROp_BitAnd:
+    case kIROp_BitNot:
+    case kIROp_BitXor:
+    case kIROp_BitCast:
+    case kIROp_Lsh:
+    case kIROp_Rsh:
+    case kIROp_IRem:
+    case kIROp_ByteAddressBufferLoad:
+    case kIROp_ByteAddressBufferStore:
+    case kIROp_StructuredBufferLoad:
+    case kIROp_StructuredBufferStore:
+    case kIROp_Reinterpret:
+    case kIROp_IsType:
+    case kIROp_ImageSubscript:
+    case kIROp_ImageLoad:
+    case kIROp_ImageStore:
     case kIROp_CreateExistentialObject:
+    case kIROp_PackAnyValue:
+    case kIROp_UnpackAnyValue:
+    case kIROp_GetNativePtr:
         // A call to createDynamicObject<T>(arbitraryData) cannot provide a diff value,
         // so we treat this inst as non differentiable.
         // We can extend the frontend and IR with a separate op-code that can provide an explicit diff value.
