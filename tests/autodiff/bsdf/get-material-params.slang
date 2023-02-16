@@ -38,6 +38,7 @@ void __bwd_d_getMaterialParams(uint materialID, Auto_Bwd_BSDFParameters.Differen
 [BackwardDifferentiable]
 void tracePath(inout float3 radiance)
 {
+    [ForceUnroll]
     for (uint i = 0; i <= 2; ++i)
     {
         Auto_Bwd_BSDFParameters bsdfParams = getMaterialParams(i);
