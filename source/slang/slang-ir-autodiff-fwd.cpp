@@ -170,17 +170,11 @@ InstPair ForwardDiffTranscriber::transcribeBinaryLogic(IRBuilder* builder, IRIns
 {
     SLANG_ASSERT(origLogic->getOperandCount() == 2);
 
-    // TODO: Check other boolean cases.
-    if (as<IRBoolType>(origLogic->getDataType()))
-    {
-        // Boolean operations are not differentiable. For the linearization
-        // pass, we do not need to do anything but copy them over to the ne
-        // function.
-        auto primalLogic = maybeCloneForPrimalInst(builder, origLogic);
-        return InstPair(primalLogic, nullptr);
-    }
-    
-    SLANG_UNEXPECTED("Logical operation with non-boolean result");
+    // Boolean operations are not differentiable. For the linearization
+    // pass, we do not need to do anything but copy them over to the ne
+    // function.
+    auto primalLogic = maybeCloneForPrimalInst(builder, origLogic);
+    return InstPair(primalLogic, nullptr);
 }
 
 InstPair ForwardDiffTranscriber::transcribeLoad(IRBuilder* builder, IRLoad* origLoad)
