@@ -187,23 +187,25 @@ InstPair ForwardDiffTranscriber::transcribeLoad(IRBuilder* builder, IRLoad* orig
 {
     auto origPtr = origLoad->getPtr();
     auto primalPtr = lookupPrimalInst(builder, origPtr, nullptr);
-    auto primalPtrValueType = as<IRPtrTypeBase>(primalPtr->getFullType())->getValueType();
-
-    if (auto diffPairType = as<IRDifferentialPairType>(primalPtrValueType))
+    auto primalPtrType = as<IRPtrTypeBase>(primalPtr->getFullType());
+    if (primalPtrType)
     {
-        // Special case load from an `out` param, which will not have corresponding `diff` and
-        // `primal` insts yet.
-        
-        // TODO: Could we move this load to _after_ DifferentialPairGetPrimal, 
-        // and DifferentialPairGetDifferential?
-        // 
-        auto load = builder->emitLoad(primalPtr);
-        builder->markInstAsMixedDifferential(load, diffPairType);
+        if (auto diffPairType = as<IRDifferentialPairType>(primalPtrType->getValueType()))
+        {
+            // Special case load from an `out` param, which will not have corresponding `diff` and
+            // `primal` insts yet.
 
-        auto primalElement = builder->emitDifferentialPairGetPrimal(load);
-        auto diffElement = builder->emitDifferentialPairGetDifferential(
-            (IRType*)pairBuilder->getDiffTypeFromPairType(builder, diffPairType), load);
-        return InstPair(primalElement, diffElement);
+            // TODO: Could we move this load to _after_ DifferentialPairGetPrimal, 
+            // and DifferentialPairGetDifferential?
+            // 
+            auto load = builder->emitLoad(primalPtr);
+            builder->markInstAsMixedDifferential(load, diffPairType);
+
+            auto primalElement = builder->emitDifferentialPairGetPrimal(load);
+            auto diffElement = builder->emitDifferentialPairGetDifferential(
+                (IRType*)pairBuilder->getDiffTypeFromPairType(builder, diffPairType), load);
+            return InstPair(primalElement, diffElement);
+        }
     }
 
     auto primalLoad = maybeCloneForPrimalInst(builder, origLoad);
