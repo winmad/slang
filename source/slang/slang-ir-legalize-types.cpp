@@ -1901,6 +1901,10 @@ static LegalVal legalizeInst(
         legalType,
         legalArgs.getBuffer());
 
+    if (legalVal.flavor == LegalVal::Flavor::simple)
+    {
+        inst->replaceUsesWith(legalVal.getSimple());
+    }
     // After we are done, we will eliminate the
     // original instruction by removing it from
     // the IR.
