@@ -35,34 +35,34 @@ void main()
     float HitT_0 = ((gl_RayTmaxNV));
     _S3.PackedHitInfoA_0.x = HitT_0;
 
-    float _S5 = ((gParamBlock_sbuf_0)._data[(0)]);
+    float offsfloat_0 = ((gParamBlock_sbuf_0)._data[(0)]);
 
     uint use_rcp_0 = 0U | uint(HitT_0 > 0.0);
 
     if(use_rcp_0 != 0U)
     {
 
-        float _S6 = rcp_0(_S5);
+        float _S5 = rcp_0(offsfloat_0);
 
-        _S3.PackedHitInfoA_0.y = _S6;
+        _S3.PackedHitInfoA_0.y = _S5;
 
     }
     else
     {
 
-        if(use_rcp_0 > 0U&&_S5 == 0.0)
+        if(use_rcp_0 > 0U&&offsfloat_0 == 0.0)
         {
 
-            float _S7 = (inversesqrt((_S5 + 1.0)));
+            float _S6 = (inversesqrt((offsfloat_0 + 1.0)));
 
-            _S3.PackedHitInfoA_0.y = _S7;
+            _S3.PackedHitInfoA_0.y = _S6;
 
         }
         else
         {
-            float _S8 = (inversesqrt((_S5)));
+            float _S7 = (inversesqrt((offsfloat_0)));
 
-            _S3.PackedHitInfoA_0.y = _S8;
+            _S3.PackedHitInfoA_0.y = _S7;
 
         }
 
