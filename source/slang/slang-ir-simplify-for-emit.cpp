@@ -5,12 +5,16 @@
 namespace Slang
 {
 
+bool isCPUTarget(TargetRequest* targetReq);
+bool isCUDATarget(TargetRequest* targetReq);
+
 struct SimplifyForEmitContext : public InstPassBase
 {
-    SimplifyForEmitContext(IRModule* inModule)
-        : InstPassBase(inModule)
+    SimplifyForEmitContext(IRModule* inModule, TargetRequest* inTargetReq)
+        : InstPassBase(inModule), targetReq(inTargetReq)
     {}
 
+    TargetRequest* targetReq;
     List<IRInst*> followUpWorkList;
     HashSet<IRInst*> followUpWorkListSet;
 
@@ -134,7 +138,7 @@ struct SimplifyForEmitContext : public InstPassBase
         IRBuilder builder(sharedBuilderStorage);
         builder.setInsertBefore(user);
         auto newLoad = builder.emitLoad(load->getPtr());
-        use->set(newLoad);
+        builder.replaceOperand(use, newLoad);
     }
 
     void processLoad(IRLoad* inst)
@@ -330,8 +334,74 @@ struct SimplifyForEmitContext : public InstPassBase
             processInst(followUpWorkList[i]);
     }
 
+    void unifyBinaryExprOperands(IRGlobalValueWithCode* func)
+    {
+        IRBuilder builder(func->getModule());
+
+        for (auto block : func->getBlocks())
+        {
+            for (auto inst = block->getFirstInst(); inst; inst = inst->getNextInst())
+            {
+                switch (inst->getOp())
+                {
+                case kIROp_Add:
+                case kIROp_Sub:
+                case kIROp_Mul:
+                case kIROp_Div:
+                case kIROp_IRem:
+                case kIROp_FRem:
+                case kIROp_And:
+                case kIROp_Or:
+                case kIROp_BitAnd:
+                case kIROp_BitOr:
+                case kIROp_BitXor:
+                case kIROp_Leq:
+                case kIROp_Less:
+                case kIROp_Geq:
+                case kIROp_Greater:
+                case kIROp_Eql:
+                case kIROp_Neq:
+                case kIROp_Lsh:
+                case kIROp_Rsh:
+                    builder.setInsertBefore(inst);
+                    SLANG_ASSERT(inst->getOperandCount() == 2);
+                    if (as<IRVectorType>(inst->getDataType()))
+                    {
+                        for (UInt a = 0; a < 2; a++)
+                        {
+                            if (as<IRBasicType>(inst->getOperand(a)->getDataType()))
+                            {
+                                auto v = builder.emitMakeVectorFromScalar(
+                                    inst->getOperand(1 - a)->getDataType(), inst->getOperand(a));
+                                inst->setOperand(a, v);
+                            }
+                        }
+                    }
+                    else if (as<IRMatrixType>(inst->getDataType()))
+                    {
+                        for (UInt a = 0; a < 2; a++)
+                        {
+                            if (as<IRBasicType>(inst->getOperand(a)->getDataType()))
+                            {
+                                auto v = builder.emitMakeMatrixFromScalar(
+                                    inst->getOperand(1 - a)->getDataType(), inst->getOperand(a));
+                                inst->setOperand(a, v);
+                            }
+                        }
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
     void processFunc(IRGlobalValueWithCode* func)
     {
+        if (isCPUTarget(targetReq) || isCUDATarget(targetReq))
+        {
+            unifyBinaryExprOperands(func);
+        }
         eliminateCompositeConstruct(func);
         deferAndDuplicateElementExtract(func);
         deferAndDuplicateLoad(func);
@@ -345,9 +415,9 @@ struct SimplifyForEmitContext : public InstPassBase
     }
 };
 
-void simplifyForEmit(IRModule* module)
+void simplifyForEmit(IRModule* module, TargetRequest* targetRequest)
 {
-    SimplifyForEmitContext context(module);
+    SimplifyForEmitContext context(module, targetRequest);
     context.processModule();
 }
 
