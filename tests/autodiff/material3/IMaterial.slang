@@ -6,6 +6,6 @@ interface IMaterial
 {
     associatedtype MaterialInstance : IMaterialInstance;
 
-    [BackwardDifferentiable]
-    MaterialInstance setupMaterialInstance(out MaterialInstanceData miData);
+    [Differentiable]
+    MaterialInstance setupMaterialInstance();
 }

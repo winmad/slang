@@ -29,12 +29,11 @@ struct GlossyMaterial : IMaterial
         for (int j = 0; j < 3; j++) outputBuffer[j + 3] += dOut[j];
     }
 
-    [BackwardDifferentiable]
-    GlossyMaterialInstance setupMaterialInstance(out MaterialInstanceData miData)
+    [Differentiable]
+    GlossyMaterialInstance setupMaterialInstance()
     {
         float3 albedo = getAlbedo(baseColor);
-        GlossyMaterialInstance mi = { baseColor };
-        for (uint i = 0; i < 3; i++) miData.data[i] = albedo[i];
+        GlossyMaterialInstance mi = GlossyMaterialInstance(albedo);
         return mi;
     }
 };

@@ -15,12 +15,11 @@ struct DiffuseMaterial : IMaterial
         return albedo;
     }
 
-    [BackwardDifferentiable]
-    DiffuseMaterialInstance setupMaterialInstance(out MaterialInstanceData miData)
+    [Differentiable]
+    DiffuseMaterialInstance setupMaterialInstance()
     {
         float3 albedo = getAlbedo(baseColor);
-        DiffuseMaterialInstance mi = { baseColor };
-        for (uint i = 0; i < 3; i++) miData.data[i] = albedo[i];
+        DiffuseMaterialInstance mi = DiffuseMaterialInstance(baseColor);
         return mi;
     }
 };

@@ -5,6 +5,6 @@ RWStructuredBuffer<float> outputBuffer;
 
 interface IBSDF
 {
-    [BackwardDifferentiable]
+    [Differentiable]
     float3 eval(const float3 wi, const float3 wo);
 }

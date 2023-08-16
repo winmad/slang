@@ -7,11 +7,15 @@ struct DiffuseMaterialInstance : IMaterialInstance
 {
     float3 albedo;
 
-    [BackwardDifferentiable]
-    float3 eval(const MaterialInstanceData miData, const float3 wi, const float3 wo)
+    [Differentiable]
+    __init(float3 albedo)
     {
-        float3 albedo;
-        for (uint i = 0; i < 3; i++) albedo[i] = miData.data[i];
+        this.albedo = albedo;
+    }
+
+    [Differentiable]
+    float3 eval(const float3 wi, const float3 wo)
+    {
         return albedo;
     }
 };
