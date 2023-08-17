@@ -593,48 +593,25 @@ IR_SIMPLE_DECORATION(ForceInlineDecoration)
 
 IR_SIMPLE_DECORATION(ForceUnrollDecoration)
 
-
-struct IRNaturalSizeAndAlignmentDecoration : IRDecoration
+struct IRSizeAndAlignmentDecoration : IRDecoration
 {
-    enum { kOp = kIROp_NaturalSizeAndAlignmentDecoration };
-    IR_LEAF_ISA(NaturalSizeAndAlignmentDecoration)
+    IR_LEAF_ISA(SizeAndAlignmentDecoration)
 
-    IRIntLit* getSizeOperand() { return cast<IRIntLit>(getOperand(0)); }
-    IRIntLit* getAlignmentOperand() { return cast<IRIntLit>(getOperand(1)); }
-
+    IRTypeLayoutRuleName getLayoutName() { return IRTypeLayoutRuleName(cast<IRIntLit>(getOperand(0))->getValue()); }
+    
+    IRIntLit* getSizeOperand() { return cast<IRIntLit>(getOperand(1)); }
+    IRIntLit* getAlignmentOperand() { return cast<IRIntLit>(getOperand(2)); }
     IRIntegerValue getSize() { return getSizeOperand()->getValue(); }
     IRIntegerValue getAlignment() { return getAlignmentOperand()->getValue(); }
 };
 
-struct IRNaturalOffsetDecoration : IRDecoration
+struct IROffsetDecoration : IRDecoration
 {
-    enum { kOp = kIROp_NaturalOffsetDecoration };
-    IR_LEAF_ISA(NaturalOffsetDecoration)
+    IR_LEAF_ISA(OffsetDecoration)
 
-    IRIntLit* getOffsetOperand() { return cast<IRIntLit>(getOperand(0)); }
+    IRTypeLayoutRuleName getLayoutName() { return IRTypeLayoutRuleName(cast<IRIntLit>(getOperand(0))->getValue()); }
 
-    IRIntegerValue getOffset() { return getOffsetOperand()->getValue(); }
-};
-
-struct IRStd430SizeAndAlignmentDecoration : IRDecoration
-{
-    enum { kOp = kIROp_Std430SizeAndAlignmentDecoration };
-    IR_LEAF_ISA(Std430SizeAndAlignmentDecoration)
-
-    IRIntLit* getSizeOperand() { return cast<IRIntLit>(getOperand(0)); }
-    IRIntLit* getAlignmentOperand() { return cast<IRIntLit>(getOperand(1)); }
-
-    IRIntegerValue getSize() { return getSizeOperand()->getValue(); }
-    IRIntegerValue getAlignment() { return getAlignmentOperand()->getValue(); }
-};
-
-struct IRStd430OffsetDecoration : IRDecoration
-{
-    enum { kOp = kIROp_Std430OffsetDecoration };
-    IR_LEAF_ISA(Std430OffsetDecoration)
-
-    IRIntLit* getOffsetOperand() { return cast<IRIntLit>(getOperand(0)); }
-
+    IRIntLit* getOffsetOperand() { return cast<IRIntLit>(getOperand(1)); }
     IRIntegerValue getOffset() { return getOffsetOperand()->getValue(); }
 };
 
@@ -842,6 +819,7 @@ struct IRDifferentialInstDecoration : IRAutodiffInstDecoration
 
     IRType* getPrimalType() { return (IRType*)(getOperand(0)); }
     IRInst* getPrimalInst() { return getOperand(1); }
+    IRInst* getWitness() { return getOperand(2); }
 };
 
 struct IRPrimalInstDecoration : IRAutodiffInstDecoration
@@ -1039,6 +1017,17 @@ struct IRBackwardDifferentiate : IRInst
     IRInst* getBaseFn() { return getOperand(0); }
 
     IR_LEAF_ISA(BackwardDifferentiate)
+};
+
+struct IRIsDifferentialNull : IRInst
+{
+    enum
+    {
+        kOp = kIROp_IsDifferentialNull
+    };
+    IRInst* getBase() { return getOperand(0); }
+
+    IR_LEAF_ISA(IsDifferentialNull)
 };
 
 // Retrieves the primal substitution function for the given function.
@@ -2855,6 +2844,24 @@ struct IRCastFloatToInt : IRInst
     IR_LEAF_ISA(CastFloatToInt)
 };
 
+struct IRDebugSource : IRInst
+{
+    IR_LEAF_ISA(DebugSource)
+    IRInst* getFileName() { return getOperand(0); }
+    IRInst* getSource() { return getOperand(1); }
+};
+
+struct IRDebugLine : IRInst
+{
+    IR_LEAF_ISA(DebugLine)
+    IRInst* getSource() { return getOperand(0); }
+    IRInst* getLineStart() { return getOperand(1); }
+    IRInst* getLineEnd() { return getOperand(2); }
+    IRInst* getColStart() { return getOperand(3); }
+    IRInst* getColEnd() { return getOperand(4); }
+};
+
+
 struct IRBuilderSourceLocRAII;
 
 struct IRBuilder
@@ -3086,6 +3093,15 @@ public:
     IRUnsizedArrayType* getUnsizedArrayType(
         IRType* elementType);
 
+    IRArrayType* getArrayType(
+        IRType* elementType,
+        IRInst* elementCount,
+        IRInst* stride);
+
+    IRUnsizedArrayType* getUnsizedArrayType(
+        IRType* elementType,
+        IRInst* stride);
+
     IRVectorType* getVectorType(
         IRType* elementType,
         IRInst* elementCount);
@@ -3184,6 +3200,9 @@ public:
         return getAttributedType(baseType, attributes.getCount(), attributes.getBuffer());
     }
 
+    IRInst* emitDebugSource(UnownedStringSlice fileName, UnownedStringSlice source);
+    IRInst* emitDebugLine(IRInst* source, IRIntegerValue lineStart, IRIntegerValue lineEnd, IRIntegerValue colStart, IRIntegerValue colEnd);
+
         /// Emit an LiveRangeStart instruction indicating the referenced item is live following this instruction
     IRLiveRangeStart* emitLiveRangeStart(IRInst* referenced);
 
@@ -3216,6 +3235,7 @@ public:
     IRInst* emitBackwardDifferentiatePropagateInst(IRType* type, IRInst* baseFn);
     IRInst* emitPrimalSubstituteInst(IRType* type, IRInst* baseFn);
     IRInst* emitDetachDerivative(IRType* type, IRInst* value);
+    IRInst* emitIsDifferentialNull(IRInst* value);
 
     IRInst* emitDispatchKernelInst(IRType* type, IRInst* baseFn, IRInst* threadGroupSize, IRInst* dispatchSize, Int argCount, IRInst* const* inArgs);
     IRInst* emitCudaKernelLaunch(IRInst* baseFn, IRInst* gridDim, IRInst* blockDim, IRInst* argsArray, IRInst* cudaStream);
@@ -3730,7 +3750,7 @@ public:
         IRBlock*    trueBlock,
         IRBlock*    afterBlock);
 
-    IRInst* emitIfElse(
+    IRIfElse* emitIfElse(
         IRInst*    val,
         IRBlock*    trueBlock,
         IRBlock*    falseBlock,
@@ -4168,6 +4188,12 @@ public:
     void markInstAsDifferential(IRInst* value, IRType* primalType, IRInst* primalInst)
     {
         addDecoration(value, kIROp_DifferentialInstDecoration, primalType, primalInst);
+    }
+
+    void markInstAsDifferential(IRInst* value, IRType* primalType, IRInst* primalInst, IRInst* witnessTable)
+    {
+        IRInst* args[] = { primalType, primalInst, witnessTable };
+        addDecoration(value, kIROp_DifferentialInstDecoration, args, 3);
     }
 
     void addCOMWitnessDecoration(IRInst* value, IRInst* witnessTable)

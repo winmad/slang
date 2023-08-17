@@ -331,7 +331,7 @@ IRFunc* DiffUnzipPass::extractPrimalFunc(
     for (auto param : func->getParams())
     {
         if (paramInfo.primalFuncParams.contains(param))
-            newPrimalParams.add(subEnv.mapOldValToNew[param].getValue());
+            newPrimalParams.add(subEnv.mapOldValToNew.getValue(param));
     }
 
     ExtractPrimalFuncContext context;
@@ -417,7 +417,7 @@ IRFunc* DiffUnzipPass::extractPrimalFunc(
                             inst->getFullType(),
                             intermediateVar,
                             structKeyDecor->getStructKey());
-                        iuse->set(val);
+                        builder.replaceOperand(iuse, val);
                     }
                 }
                 instsToRemove.add(inst);

@@ -317,7 +317,7 @@ namespace Slang
     IRInst* IRArrayTypeBase::getElementCount()
     {
         if (auto arrayType = as<IRArrayType>(this))
-            return arrayType->getElementCount();
+            return arrayType->getOperand(1);
 
         return nullptr;
     }
@@ -2809,6 +2809,29 @@ namespace Slang
             operands);
     }
 
+    IRArrayType* IRBuilder::getArrayType(
+        IRType* elementType,
+        IRInst* elementCount,
+        IRInst* stride)
+    {
+        IRInst* operands[] = { elementType, elementCount, stride };
+        return (IRArrayType*)getType(
+            kIROp_ArrayType,
+            sizeof(operands) / sizeof(operands[0]),
+            operands);
+    }
+
+    IRUnsizedArrayType* IRBuilder::getUnsizedArrayType(
+        IRType* elementType,
+        IRInst* stride)
+    {
+        IRInst* operands[] = { elementType, stride };
+        return (IRUnsizedArrayType*)getType(
+            kIROp_UnsizedArrayType,
+            sizeof(operands) / sizeof(operands[0]),
+            operands);
+    }
+
     IRVectorType* IRBuilder::getVectorType(
         IRType* elementType,
         IRInst* elementCount)
@@ -3123,6 +3146,23 @@ namespace Slang
     {
         return emitIntrinsicInst((IRType*)type, kIROp_OutImplicitCast, 1, &value);
     }
+    IRInst* IRBuilder::emitDebugSource(UnownedStringSlice fileName, UnownedStringSlice source)
+    {
+        IRInst* args[] = { getStringValue(fileName), getStringValue(source) };
+        return emitIntrinsicInst(getVoidType(), kIROp_DebugSource, 2, args);
+    }
+    IRInst* IRBuilder::emitDebugLine(IRInst* source, IRIntegerValue lineStart, IRIntegerValue lineEnd, IRIntegerValue colStart, IRIntegerValue colEnd)
+    {
+        IRInst* args[] = 
+        {
+            source,
+            getIntValue(getIntType(), lineStart),
+            getIntValue(getIntType(), lineEnd),
+            getIntValue(getIntType(), colStart),
+            getIntValue(getIntType(), colEnd)
+        };
+        return emitIntrinsicInst(getVoidType(), kIROp_DebugLine, 5, args);
+    }
     IRLiveRangeStart* IRBuilder::emitLiveRangeStart(IRInst* referenced)
     {
         // This instruction doesn't produce any result, 
@@ -3223,6 +3263,17 @@ namespace Slang
             this,
             kIROp_DetachDerivative,
             type,
+            value);
+        addInst(inst);
+        return inst;
+    }
+
+    IRInst *IRBuilder::emitIsDifferentialNull(IRInst *value)
+    {
+        auto inst = createInst<IRIsDifferentialNull>(
+            this,
+            kIROp_IsDifferentialNull,
+            getBoolType(),
             value);
         addInst(inst);
         return inst;
@@ -5117,7 +5168,7 @@ namespace Slang
         return inst;
     }
 
-    IRInst* IRBuilder::emitIfElse(
+    IRIfElse* IRBuilder::emitIfElse(
         IRInst*     val,
         IRBlock*    trueBlock,
         IRBlock*    falseBlock,

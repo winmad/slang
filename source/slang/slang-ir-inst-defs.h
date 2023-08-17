@@ -362,6 +362,9 @@ INST(PrimalParamRef, PrimalParamRef, 1, 0)
 // to represent a reference to an inout parameter for use in the back-prop part of the computation.
 INST(DiffParamRef, DiffParamRef, 1, 0)
 
+// Check that the value is a differential null value.
+INST(IsDifferentialNull, IsDifferentialNull, 1, 0)
+
 INST(FieldExtract, get_field, 2, 0)
 INST(FieldAddress, get_field_addr, 2, 0)
 
@@ -731,17 +734,11 @@ INST(HighLevelDeclDecoration,               highLevelDecl,          1, 0)
         /// A `[ForceUnroll]` decoration indicates the loop should be unrolled by the Slang compiler.
     INST(ForceUnrollDecoration, ForceUnroll, 0, 0)
 
-        /// A `[naturalSizeAndAlignment(s,a)]` decoration is attached to a type to indicate that is has natural size `s` and alignment `a`
-    INST(NaturalSizeAndAlignmentDecoration, naturalSizeAndAlignment, 2, 0)
+        /// A `[SizeAndAlignment(l,s,a)]` decoration is attached to a type to indicate that is has size `s` and alignment `a` under layout rules `l`.
+    INST(SizeAndAlignmentDecoration, SizeAndAlignment, 3, 0)
 
-        /// A `[naturalOffset(o)]` decoration is attached to a field to indicate that it has natural offset `o` in the parent type
-    INST(NaturalOffsetDecoration, naturalOffset, 1, 0)
-
-        /// A `[std430SizeAndAlignment(s,a)]` decoration is attached to a type to indicate that is has std430 size `s` and alignment `a`
-    INST(Std430SizeAndAlignmentDecoration, naturalSizeAndAlignment, 2, 0)
-
-        /// A `[std430Offset(o)]` decoration is attached to a field to indicate that it has std430 offset `o` in the parent type
-    INST(Std430OffsetDecoration, naturalOffset, 1, 0)
+        /// A `[Offset(l, o)]` decoration is attached to a field to indicate that it has offset `o` in the parent type under layout rules `l`.
+    INST(OffsetDecoration, Offset, 2, 0)
 
     /* LinkageDecoration */
         INST(ImportDecoration, import, 1, 0)
@@ -941,8 +938,8 @@ INST(WrapExistential,                   wrapExistential,                1, 0)
 INST(GetValueFromBoundInterface,        getValueFromBoundInterface,     1, 0)
 
 INST(ExtractExistentialValue,           extractExistentialValue,        1, 0)
-INST(ExtractExistentialType,            extractExistentialType,         1, 0)
-INST(ExtractExistentialWitnessTable,    extractExistentialWitnessTable, 1, 0)
+INST(ExtractExistentialType,            extractExistentialType,         1, HOISTABLE)
+INST(ExtractExistentialWitnessTable,    extractExistentialWitnessTable, 1, HOISTABLE)
 
 INST(ExtractTaggedUnionTag,             extractTaggedUnionTag,      1, 0)
 INST(ExtractTaggedUnionPayload,         extractTaggedUnionPayload,  1, 0)
@@ -1040,6 +1037,10 @@ INST(ExistentialTypeSpecializationDictionary, ExistentialTypeSpecializationDicti
 
 /* Differentiable Type Dictionary */
 INST(DifferentiableTypeDictionaryItem, DifferentiableTypeDictionaryItem, 0, 0)
+
+/* DebugInfo */
+INST(DebugSource, DebugSource, 2, HOISTABLE)
+INST(DebugLine, DebugLine, 5, 0)
 
 #undef PARENT
 #undef USE_OTHER

@@ -2,6 +2,7 @@
 #include "slang-ir-lower-generics.h"
 
 #include "slang-ir-any-value-marshalling.h"
+#include "slang-ir-any-value-inference.h"
 #include "slang-ir-augment-make-existential.h"
 #include "slang-ir-generics-lowering-context.h"
 #include "slang-ir-lower-existential.h"
@@ -15,7 +16,10 @@
 #include "slang-ir-witness-table-wrapper.h"
 #include "slang-ir-ssa-simplification.h"
 #include "slang-ir-util.h"
+#include "slang-ir-layout.h"
+
 #include "../core/slang-performance-profiler.h"
+#include "../core/slang-func-ptr.h"
 
 namespace Slang
 {
@@ -176,6 +180,30 @@ namespace Slang
             });
     }
 
+    void stripWrapExistential(IRModule* module)
+    {
+        auto& workList = *module->getContainerPool().getList<IRInst>();
+        workList.add(module->getModuleInst());
+        for (Index i = 0; i < workList.getCount(); i++)
+        {
+            auto inst = workList[i];
+            switch (inst->getOp())
+            {
+            case kIROp_WrapExistential:
+                {
+                    auto operand = inst->getOperand(0);
+                    inst->replaceUsesWith(operand);
+                    inst->removeAndDeallocate();
+                }
+                break;
+            default:
+                for (auto child : inst->getChildren())
+                    workList.add(child);
+                break;
+            }
+        }
+    }
+
     void lowerGenerics(
         TargetRequest*          targetReq,
         IRModule*               module,
@@ -188,6 +216,8 @@ namespace Slang
         sharedContext.sink = sink;
 
         checkTypeConformanceExists(&sharedContext);
+
+        inferAnyValueSizeWhereNecessary(module);
 
         // Replace all `makeExistential` insts with `makeExistentialWithRTTI`
         // before making any other changes. This is necessary because a parameter of
@@ -234,5 +264,11 @@ namespace Slang
         generateAnyValueMarshallingFunctions(&sharedContext);
         if (sink->getErrorCount() != 0)
             return;
+
+        // At this point, we should no longer need to care any `WrapExistential` insts,
+        // although they could still exist in the IR in order to call generic stdlib functions,
+        // e.g. RWStucturedBuffer.Load(WrapExistential(sbuffer, type), index).
+        // We should remove them now.
+        stripWrapExistential(module);
     }
 } // namespace Slang

@@ -3,6 +3,7 @@
 #include "slang-ir-autodiff-region.h"
 #include "slang-ir-simplify-cfg.h"
 #include "slang-ir-util.h"
+#include "../core/slang-func-ptr.h"
 #include "slang-ir.h"
 
 namespace Slang
@@ -108,7 +109,7 @@ static Dictionary<IRBlock*, IRBlock*> createPrimalRecomputeBlocks(
         recomputeBlock->insertAtEnd(func);
         builder.addDecoration(recomputeBlock, kIROp_RecomputeBlockDecoration);
         recomputeBlockMap.add(primalBlock, recomputeBlock);
-        indexedBlockInfo[recomputeBlock] = indexedBlockInfo[primalBlock].getValue();
+        indexedBlockInfo.set(recomputeBlock, indexedBlockInfo.getValue(primalBlock));
         return recomputeBlock;
     };
     
@@ -188,7 +189,7 @@ static Dictionary<IRBlock*, IRBlock*> createPrimalRecomputeBlocks(
             // Queue work for the subregion.
             auto loop = as<IRLoop>(primalBlock->getTerminator());
             auto bodyBlock = getLoopRegionBodyBlock(loop);
-            auto diffLoop = mapPrimalLoopToDiffLoop[loop].getValue();
+            auto diffLoop = mapPrimalLoopToDiffLoop.getValue(loop);
             auto diffBodyBlock = getLoopRegionBodyBlock(diffLoop);
             auto bodyRecomputeBlock = createRecomputeBlock(bodyBlock);
             bodyRecomputeBlock->insertBefore(diffBodyBlock);
@@ -499,11 +500,10 @@ RefPtr<HoistedPrimalsInfo> AutodiffCheckpointPolicyBase::processFunc(
 struct ImplicationParams
 {
     IRInst *condition, *induction, *block;
-    HashCode getHashCode() const { return getHashCodeBytewise(*this); }
-    // C++20: friend auto operator<=>(const ImplicationParams&, const ImplicationParams&) = default;
-    friend bool operator==(const ImplicationParams& x, const ImplicationParams& y)
+    SLANG_BYTEWISE_HASHABLE;
+    bool operator==(const ImplicationParams& other) const
     {
-        return x.condition == y.condition && x.induction == y.induction && x.block == y.block;
+        return condition == other.condition && induction == other.induction && block == other.block;
     }
 };
 
@@ -993,7 +993,7 @@ void applyCheckpointSet(
                 predecessorSet.add(predecessor);
                 
                 auto primalPhiArg = as<IRUnconditionalBranch>(predecessor->getTerminator())->getArg(ii);
-                auto recomputePredecessor = mapPrimalBlockToRecomputeBlock[predecessor].getValue();
+                auto recomputePredecessor = mapPrimalBlockToRecomputeBlock.getValue(predecessor);
 
                 // For now, find the primal phi argument in this predecessor,
                 // and stick it into the recompute predecessor's branch inst. We
@@ -1088,7 +1088,11 @@ IRVar* emitIndexedLocalVar(
     IRType* baseType,
     const List<IndexTrackingInfo>& defBlockIndices)
 {
+    // Cannot store pointers. Case should have been handled by now.
     SLANG_RELEASE_ASSERT(!as<IRPtrTypeBase>(baseType));
+
+    // Cannot store types. Case should have been handled by now.
+    SLANG_RELEASE_ASSERT(!as<IRTypeType>(baseType));
 
     IRBuilder varBuilder(varBlock->getModule());
     varBuilder.setInsertBefore(varBlock->getFirstOrdinaryInst());
@@ -1236,32 +1240,121 @@ static int getInstRegionNestLevel(
     IRBlock* defBlock,
     IRInst* inst)
 {
-    auto result = indexedBlockInfo[defBlock].getValue().getCount();
+    auto result = indexedBlockInfo.getValue(defBlock).getCount();
     // Loop counters are considered to not belong to the region started by the its loop.
     if (result > 0 && inst->findDecoration<IRLoopCounterDecoration>())
         result--;
     return (int)result;
 }
 
+
+struct UseChain
+{
+    List<IRUse*> chain;
+    static List<UseChain> from(
+        IRUse* baseUse,
+        Func<bool, IRUse*> isRelevantUse,
+        Func<bool, IRInst*> passthroughInst)
+    {
+        IRInst* inst = baseUse->getUser();
+
+        // Base case 1: we hit a relevant use, return a single-element chain.
+        if (isRelevantUse(baseUse))
+        {
+            UseChain baseUseChain;
+            baseUseChain.chain.add(baseUse);
+
+            return List<UseChain>(UseChain(baseUseChain));
+        }
+
+        // Base case 2: we hit an irrelevant use that is not also a passthrough.
+        // so stop here.
+        if (!passthroughInst(inst))
+        {
+            return List<UseChain>();
+        }
+
+        // Recurse.
+        List<UseChain> result;
+        for (auto use = inst->firstUse; use; use = use->nextUse)
+        {
+            List<UseChain> innerChain = from(use, isRelevantUse, passthroughInst);
+            
+            for (auto& useChain : innerChain)
+            {
+                useChain.chain.add(baseUse);
+                result.add(useChain);
+            }
+        }
+
+        return result;
+    }
+
+    void replace(IRBuilder* builder, IRInst* inst)
+    {
+        SLANG_ASSERT(chain.getCount() > 0);
+
+        // Simple case: if there is only one use, then we can just replace it.
+        if (chain.getCount() == 1)
+        {
+            builder->replaceOperand(chain.getLast(), inst);
+            chain.clear();
+            return;
+        }
+
+        IRCloneEnv env;
+
+        // Pop the last use, which is the base use that needs to be replaced.
+        auto baseUse = chain.getLast();
+        chain.removeLast();
+
+        // Ensure that replacement inst is set as mapping for the baseUse.
+        env.mapOldValToNew[baseUse->get()] = inst;
+
+        auto lastInstInChain = inst;
+
+        IRBuilder chainBuilder(builder->getModule());
+        setInsertAfterOrdinaryInst(&chainBuilder, inst);
+        
+        // Clone the rest of the chain.
+        for (auto& use : chain)
+        {
+            lastInstInChain = cloneInst(&env, &chainBuilder, use->getUser());
+        }
+
+        // Replace the base use.
+        builder->replaceOperand(baseUse, lastInstInChain);
+        
+        chain.clear();
+    }
+
+    IRInst* getUser() const
+    {
+        SLANG_ASSERT(chain.getCount() > 0);
+        return chain.getLast()->getUser();
+    }
+};
+
+
 // Trim defBlockIndices based on the indices of out of scope uses.
 //
 static List<IndexTrackingInfo> maybeTrimIndices(
     const List<IndexTrackingInfo>& defBlockIndices,
     const Dictionary<IRBlock*, List<IndexTrackingInfo>>& indexedBlockInfo,
-    const List<IRUse*>& outOfScopeUses)
+    const List<UseChain>& outOfScopeUses)
 {
     // Go through uses, lookup the defBlockIndices, and remove any indices if they
     // are not present in any of the uses. (This is sort of slow...)
     //
     List<IndexTrackingInfo> result;
-    for (auto& index : defBlockIndices)
+    for (const auto& index : defBlockIndices)
     {
         bool found = false;
-        for (auto& use : outOfScopeUses)
+        for (const auto& use : outOfScopeUses)
         {
-            auto useInst = use->getUser();
+            auto useInst = use.getUser();
             auto useBlock = useInst->getParent();
-            auto useBlockIndices = indexedBlockInfo[as<IRBlock>(useBlock)].getValue();
+            auto useBlockIndices = indexedBlockInfo.getValue(as<IRBlock>(useBlock));
             if (useBlockIndices.contains(index))
             {
                 found = true;
@@ -1272,6 +1365,18 @@ static List<IndexTrackingInfo> maybeTrimIndices(
             result.add(index);
     }
     return result;
+}
+
+bool canInstBeStored(IRInst* inst)
+{
+    // Cannot store insts whose value is a type or a witness table.
+    // These insts get lowered to target-specific logic, and cannot be 
+    // stored into variables or context structs as normal values.
+    // 
+    if (as<IRTypeType>(inst->getDataType()) || as<IRWitnessTableType>(inst->getDataType()))
+        return false;
+    
+    return true;
 }
 
 
@@ -1353,8 +1458,19 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
     {
         SLANG_ASSERT(!isDifferentialBlock(defaultVarBlock));
 
-        for (auto instToStore : instSet)
+        List<IRInst*> workList;
+        for (auto inst : instSet)
+            workList.add(inst);
+
+        HashSet<IRInst*> seenInstSet;
+        while (workList.getCount() != 0)
         {
+            auto instToStore = workList.getLast();
+            workList.removeLast();
+
+            if (seenInstSet.contains(instToStore))
+                continue;
+
             IRBlock* defBlock = nullptr;
             if (const auto ptrInst = as<IRPtrTypeBase>(instToStore->getDataType()))
             {
@@ -1368,49 +1484,65 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
 
             SLANG_RELEASE_ASSERT(defBlock);
 
-            List<IRUse*> outOfScopeUses;
+            List<UseChain> outOfScopeUses;
             for (auto use = instToStore->firstUse; use;)
             {
                 auto nextUse = use->nextUse;
 
-                // Only consider uses in differential blocks. 
-                // This method is not responsible for other blocks.
-                //
-                IRBlock* userBlock = getBlock(use->getUser());
-                if (isDifferentialOrRecomputeBlock(userBlock))
+                // Lambda to check if a use is relevant.
+                auto isRelevantUse = [&](IRUse* use)
                 {
-                    if (!domTree->dominates(defBlock, userBlock))
+                    // Only consider uses in differential blocks. 
+                    // This method is not responsible for other blocks.
+                    //
+                    IRBlock* userBlock = getBlock(use->getUser());
+                    if (isDifferentialOrRecomputeBlock(userBlock))
                     {
-                        outOfScopeUses.add(use);
+                        if (!domTree->dominates(defBlock, userBlock))
+                        {
+                            return true;
+                        }
+                        else if (!areIndicesSubsetOf(indexedBlockInfo[defBlock], indexedBlockInfo[userBlock]))
+                        {
+                            return true;
+                        }
+                        else if (getInstRegionNestLevel(indexedBlockInfo, defBlock, instToStore) > 0 &&
+                            !isDifferentialOrRecomputeBlock(defBlock))
+                        {
+                            return true;
+                        }
+                        else if (as<IRPtrTypeBase>(instToStore->getDataType()) &&
+                            !isDifferentialOrRecomputeBlock(defBlock))
+                        {
+                            return true;
+                        }
                     }
-                    else if (!areIndicesSubsetOf(indexedBlockInfo[defBlock], indexedBlockInfo[userBlock]))
-                    {
-                        outOfScopeUses.add(use);
-                    }
-                    else if (getInstRegionNestLevel(indexedBlockInfo, defBlock, instToStore) > 0 &&
-                        !isDifferentialOrRecomputeBlock(defBlock))
-                    {
-                        outOfScopeUses.add(use);
-                    }
-                    else if (as<IRPtrTypeBase>(instToStore->getDataType()) &&
-                        !isDifferentialOrRecomputeBlock(defBlock))
-                    {
-                        outOfScopeUses.add(use);
-                    }
-                }
+                    return false;
+                };
+
+                // Lambda to check if an inst is transparent. We lookup uses 'through' transparent
+                // insts recursively.
+                // 
+                auto isPassthroughInst = [&](IRInst* inst)
+                {
+                    return !canInstBeStored(inst);
+                };
+
+                List<UseChain> useChains = UseChain::from(use, isRelevantUse, isPassthroughInst);
+                outOfScopeUses.addRange(useChains);
 
                 use = nextUse;
             }
 
             if (outOfScopeUses.getCount() == 0)
             {
-
                 if (!isRecomputeInst)
                     processedStoreSet.add(instToStore);
+                seenInstSet.add(instToStore);
                 continue;
             }
 
-            auto defBlockIndices = indexedBlockInfo[defBlock].getValue();
+            auto defBlockIndices = indexedBlockInfo.getValue(defBlock);
             IRBlock* varBlock = defaultVarBlock;
             if (isRecomputeInst)
             {
@@ -1458,9 +1590,9 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
 
                 for (auto use : outOfScopeUses)
                 {
-                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use->getUser()));
+                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use.getUser()));
 
-                    List<IndexTrackingInfo>& useBlockIndices = indexedBlockInfo[getBlock(use->getUser())];
+                    List<IndexTrackingInfo>& useBlockIndices = indexedBlockInfo[getBlock(use.getUser())];
 
                     IRInst* loadAddr = emitIndexedLoadAddressForVar(
                         &builder,
@@ -1468,11 +1600,36 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
                         defBlock,
                         defBlockIndices,
                         useBlockIndices);
-                    builder.replaceOperand(use, loadAddr);
+                    use.replace(&builder, loadAddr);
                 }
 
                 if (!isRecomputeInst)
                     processedStoreSet.add(localVar);
+            }
+            else if (!canInstBeStored(instToStore))
+            {
+                // We won't actually process these insts here. Instead we'll
+                // simply make sure that their operands are either already present
+                // in the worklist or add them to the worklist for legalization.
+                // 
+
+                List<IRInst*> pendingOperands;
+                for (UIndex ii = 0; ii < instToStore->getOperandCount(); ii++)
+                {
+                    auto operand = instToStore->getOperand(ii);
+                    if (!instSet.contains(operand) && !seenInstSet.contains(operand))
+                    {
+                        if(getBlock(operand) && 
+                            (getBlock(operand)->getParent() == getBlock(instToStore)->getParent()))
+                            pendingOperands.add(operand);
+                    }
+                } 
+                
+                if (pendingOperands.getCount() > 0)
+                {
+                    for (Index ii = pendingOperands.getCount() - 1; ii >= 0; --ii)
+                        workList.add(pendingOperands[ii]);
+                }
             }
             else
             {
@@ -1496,16 +1653,18 @@ RefPtr<HoistedPrimalsInfo> ensurePrimalAvailability(
 
                 for (auto use : outOfScopeUses)
                 {
-                    List<IndexTrackingInfo> useBlockIndices = indexedBlockInfo[getBlock(use->getUser())];
-                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use->getUser()));
-                    builder.replaceOperand(
-                        use,
+                    List<IndexTrackingInfo> useBlockIndices = indexedBlockInfo[getBlock(use.getUser())];
+                    setInsertBeforeOrdinaryInst(&builder, getInstInBlock(use.getUser()));
+                    use.replace(
+                        &builder,
                         loadIndexedValue(&builder, localVar, defBlock, defBlockIndices, useBlockIndices));
                 }
 
                 if (!isRecomputeInst)
                     processedStoreSet.add(localVar);
             }
+
+            seenInstSet.add(instToStore);
         }
     };
 

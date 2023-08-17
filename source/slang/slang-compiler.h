@@ -1697,11 +1697,11 @@ namespace Slang
     {
         slang::TypeReflection* elementType;
         slang::ContainerType containerType;
-        bool operator==(ContainerTypeKey other)
+        bool operator==(ContainerTypeKey other) const
         {
             return elementType == other.elementType && containerType == other.containerType;
         }
-        Slang::HashCode getHashCode()
+        Slang::HashCode getHashCode() const
         {
             return Slang::combineHash(
                 Slang::getHashCode(elementType), Slang::getHashCode(containerType));
@@ -2671,7 +2671,7 @@ namespace Slang
         virtual SLANG_NO_THROW void SLANG_MCALL setDebugInfoFormat(SlangDebugInfoFormat format) SLANG_OVERRIDE;
         virtual SLANG_NO_THROW void SLANG_MCALL setReportDownstreamTime(bool value) SLANG_OVERRIDE;
         virtual SLANG_NO_THROW void SLANG_MCALL setReportPerfBenchmark(bool value) SLANG_OVERRIDE;
-
+        
         void setHLSLToVulkanLayoutOptions(int targetIndex, HLSLToVulkanLayoutOptions* vulkanLayoutOptions);
 
         EndToEndCompileRequest(

@@ -88,7 +88,7 @@ struct DiffUnzipPass
             }
             if (auto pairType = as<IRDifferentialPairType>(type))
             {
-                IRInst* diffType = diffTypeContext.getDifferentialTypeFromDiffPairType(builder, pairType);
+                IRInst* diffType = diffTypeContext.getDiffTypeFromPairType(builder, pairType);
                 if (as<IRPtrTypeBase>(primalParam->getFullType()))
                     diffType = builder->getPtrType(primalParam->getFullType()->getOp(), (IRType*)diffType);
                 auto primalRef = builder->emitPrimalParamRef(primalParam);
@@ -159,11 +159,8 @@ struct DiffUnzipPass
         //
         {
             List<IRBlock*> workList;
-            for (auto blockRegionPair : indexRegionMap->map)
-            {
-                IRBlock* block = blockRegionPair.key;
+            for (auto [block, _] : indexRegionMap->map)
                 workList.add(block);
-            }
 
             for (auto block : workList)
             {
@@ -171,7 +168,7 @@ struct DiffUnzipPass
                     indexRegionMap->map[as<IRBlock>(primalMap[block])] = (IndexedRegion*)indexRegionMap->map[block];
                 
                 if (diffMap.containsKey(block))
-                    indexRegionMap->map[as<IRBlock>(diffMap[block])] = (IndexedRegion*)indexRegionMap->map[block];
+                    indexRegionMap->map.set(as<IRBlock>(diffMap[block]), (IndexedRegion*)indexRegionMap->map[block]);
             }
         }
         
@@ -289,7 +286,8 @@ struct DiffUnzipPass
         if (auto fwdPairResultType = as<IRDifferentialPairType>(mixedDecoration->getPairType()))
         {
             primalType = fwdPairResultType->getValueType();
-            diffType = (IRType*)diffTypeContext.getDifferentialForType(&globalBuilder, primalType);
+            diffType = (IRType*)diffTypeContext.getDiffTypeFromPairType(&globalBuilder, fwdPairResultType);
+            SLANG_ASSERT(diffType);
             resultType = fwdPairResultType;
         }
 

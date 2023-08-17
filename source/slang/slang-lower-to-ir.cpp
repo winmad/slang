@@ -9,6 +9,7 @@
 #include "../core/slang-performance-profiler.h"
 
 #include "slang-check.h"
+#include "slang-ir-loop-inversion.h"
 #include "slang-ir.h"
 #include "slang-ir-constexpr.h"
 #include "slang-ir-dce.h"
@@ -494,6 +495,8 @@ struct SharedIRGenContext
     Dictionary<Stmt*, IRBlock*> breakLabels;
     Dictionary<Stmt*, IRBlock*> continueLabels;
 
+    Dictionary<SourceFile*, IRInst*> mapSourceFileToDebugSourceInst;
+
     void setGlobalValue(Decl* decl, LoweredValInfo value)
     {
         globalEnv.mapDeclToValue[decl] = value;
@@ -503,17 +506,20 @@ struct SharedIRGenContext
         Session* session,
         DiagnosticSink* sink,
         bool obfuscateCode,
-        ModuleDecl* mainModuleDecl = nullptr)
+        ModuleDecl* mainModuleDecl,
+        Linkage* linkage)
         : m_session(session)
         , m_sink(sink)
         , m_obfuscateCode(obfuscateCode)
         , m_mainModuleDecl(mainModuleDecl)
+        , m_linkage(linkage)
     {}
 
     Session*        m_session = nullptr;
     DiagnosticSink* m_sink = nullptr;
     bool            m_obfuscateCode = false;
     ModuleDecl*     m_mainModuleDecl = nullptr;
+    Linkage*        m_linkage = nullptr;
 
     // List of all string literals used in user code, regardless
     // of how they were used (i.e., whether or not they were hashed).
@@ -556,6 +562,8 @@ struct IRGenContext
     // The IR witness value to use for `ThisType`
     IRInst* thisTypeWitness = nullptr;
 
+    bool includeDebugInfo = false;
+
     explicit IRGenContext(SharedIRGenContext* inShared, ASTBuilder* inAstBuilder)
         : shared(inShared)
         , astBuilder(inAstBuilder)
@@ -586,6 +594,11 @@ struct IRGenContext
     ModuleDecl* getMainModuleDecl()
     {
         return shared->m_mainModuleDecl;
+    }
+
+    Linkage* getLinkage()
+    {
+        return shared->m_linkage;
     }
 
     LoweredValInfo* findLoweredDecl(Decl* decl)
@@ -2800,6 +2813,16 @@ void collectParameterLists(
                     auto noDiffAttr = context->astBuilder->getNoDiffModifierVal();
                     thisType = context->astBuilder->getModifiedType(thisType, 1, &noDiffAttr);
                 }
+                else if (auto fwdDerivDeclRef = declRef.as<ForwardDerivativeRequirementDecl>())
+                {
+                    thisType = fwdDerivDeclRef.getDecl()->diffThisType;
+                }
+                else if (auto bwdDerivDeclRef = declRef.as<BackwardDerivativeRequirementDecl>())
+                {
+                    thisType = bwdDerivDeclRef.getDecl()->diffThisType;
+                    innerThisParamDirection = kParameterDirection_InOut;
+                }
+
                 addThisParameter(innerThisParamDirection, thisType, ioParameterLists);
             }
         }
@@ -5712,6 +5735,24 @@ struct StmtLoweringVisitor : StmtVisitor<StmtLoweringVisitor>
     }
 };
 
+void maybeEmitDebugLine(IRGenContext* context, Stmt* stmt)
+{
+    if (!context->includeDebugInfo)
+        return;
+    if (as<EmptyStmt>(stmt))
+        return;
+    auto sourceView = context->getLinkage()->getSourceManager()->findSourceView(stmt->loc);
+    if (!sourceView)
+        return;
+    auto source = sourceView->getSourceFile();
+    IRInst* debugSourceInst = nullptr;
+    if (context->shared->mapSourceFileToDebugSourceInst.tryGetValue(source, debugSourceInst))
+    {
+        auto humaneLoc = context->getLinkage()->getSourceManager()->getHumaneLoc(stmt->loc, SourceLocType::Emit);
+        context->irBuilder->emitDebugLine(debugSourceInst, humaneLoc.line, humaneLoc.line, humaneLoc.column, humaneLoc.column + 1);
+    }
+}
+
 void lowerStmt(
     IRGenContext*   context,
     Stmt*           stmt)
@@ -5723,6 +5764,7 @@ void lowerStmt(
 
     try
     {
+        maybeEmitDebugLine(context, stmt);
         visitor.dispatch(stmt);
     }
     // Don't emit any context message for an explicit `AbortCompilationException`
@@ -7203,7 +7245,7 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         }
         auto assocType = context->irBuilder->getAssociatedType(
             constraintInterfaces.getArrayView().arrayView);
-        context->setValue(decl, assocType);
+        context->setValue(decl, assocType); 
         return LoweredValInfo::simple(assocType);
     }
 
@@ -8414,14 +8456,6 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
         addNameHint(subContext, irFunc, decl);
         addLinkageDecoration(subContext, irFunc, decl);
 
-        if (decl->body)
-        {
-            if (auto differentialAttr = decl->findModifier<DifferentiableAttribute>())
-            {
-                lowerDifferentiableAttribute(subContext, irFunc, differentialAttr);
-            }
-        }
-
         // Always force inline diff setter accessor to prevent downstream compiler from complaining
         // fields are not fully initialized for the first `inout` parameter.
         if (as<SetterDecl>(decl))
@@ -8895,6 +8929,17 @@ struct DeclLoweringVisitor : DeclVisitor<DeclLoweringVisitor, LoweredValInfo>
                 getBuilder()->addDecoration(irFunc, kIROp_PreferRecomputeDecoration);
             }
         }
+
+        if (auto diffAttr = decl->findModifier<DifferentiableAttribute>())
+        {
+            if (decl->body)
+            {
+                subContext->irBuilder->setInsertInto(irFunc->getParent());
+                lowerDifferentiableAttribute(subContext, irFunc, diffAttr);
+                subContext->irBuilder->setInsertInto(irFunc);
+            }
+        }
+
         // For convenience, ensure that any additional global
         // values that were emitted while outputting the function
         // body appear before the function itself in the list
@@ -9542,7 +9587,8 @@ RefPtr<IRModule> generateIRForTranslationUnit(
         session,
         translationUnit->compileRequest->getSink(),
         translationUnit->compileRequest->getLinkage()->m_obfuscateCode,
-        translationUnit->getModuleDecl());
+        translationUnit->getModuleDecl(),
+        translationUnit->compileRequest->getLinkage());
     SharedIRGenContext* sharedContext = &sharedContextStorage;
 
     IRGenContext contextStorage(sharedContext, astBuilder);
@@ -9554,10 +9600,22 @@ RefPtr<IRModule> generateIRForTranslationUnit(
     IRBuilder* builder = &builderStorage;
 
     context->irBuilder = builder;
+    context->includeDebugInfo = compileRequest->getLinkage()->debugInfoLevel != DebugInfoLevel::None;
 
     // We need to emit IR for all public/exported symbols
     // in the translation unit.
     //
+    // If debug info is enabled, we emit the DebugSource insts for each source file into IR.
+    if (context->includeDebugInfo)
+    {
+        builder->setInsertInto(module->getModuleInst());
+        for (auto source : translationUnit->getSourceFiles())
+        {
+            auto debugSource = builder->emitDebugSource(source->getPathInfo().getMostUniqueIdentity().getUnownedSlice(), source->getContent());
+            context->shared->mapSourceFileToDebugSourceInst.add(source, debugSource);
+        }
+    }
+
     // For now, we will assume that *all* global-scope declarations
     // represent public/exported symbols.
 
@@ -9657,6 +9715,24 @@ RefPtr<IRModule> generateIRForTranslationUnit(
     // call sites.
     //
     performMandatoryEarlyInlining(module);
+
+    // Where possible, move loop condition checks to the end of loops, and wrap
+    // the loop in an 'if(condition)'.
+    // This makes it so that if sccp can see that the loop will always loop
+    // at least once it can record this information by removing the outer
+    // conditional.
+    // This has advantages:
+    // - Uninitialized variable usage detection doesn't have to
+    //   worry about a loop never being executed.
+    // - The loop condition is evaluated one fewer times.
+    // - Allegedly better performance on pipelined processors:
+    //   https://en.wikipedia.org/wiki/Loop_inversion
+    //
+    // And disadvantages
+    // - If sccp is unable to eliminate the outer 'if' then we end up with
+    //   duplicated code the the conditional value. Users don't tend to put
+    //   huge gobs of code in the conditional expression in loops however.
+    invertLoops(module);
 
     // Next, attempt to promote local variables to SSA
     // temporaries and do basic simplifications.
@@ -9781,7 +9857,9 @@ struct SpecializedComponentTypeIRGenContext : ComponentTypeVisitor
         SharedIRGenContext sharedContextStorage(
             session,
             sink,
-            linkage->m_obfuscateCode
+            linkage->m_obfuscateCode,
+            nullptr,
+            linkage
         );
         SharedIRGenContext* sharedContext = &sharedContextStorage;
 
@@ -9918,7 +9996,7 @@ struct TypeConformanceIRGenContext
         linkage = typeConformance->getLinkage();
         session = linkage->getSessionImpl();
 
-        SharedIRGenContext sharedContextStorage(session, sink, linkage->m_obfuscateCode);
+        SharedIRGenContext sharedContextStorage(session, sink, linkage->m_obfuscateCode, nullptr, linkage);
         SharedIRGenContext* sharedContext = &sharedContextStorage;
 
         IRGenContext contextStorage(sharedContext, linkage->getASTBuilder());
@@ -10268,7 +10346,9 @@ RefPtr<IRModule> TargetProgram::createIRModuleForLayout(DiagnosticSink* sink)
     SharedIRGenContext sharedContextStorage(
         session,
         sink,
-        linkage->m_obfuscateCode);
+        linkage->m_obfuscateCode,
+        nullptr,
+        linkage);
     auto sharedContext = &sharedContextStorage;
 
     ASTBuilder* astBuilder = linkage->getASTBuilder();
